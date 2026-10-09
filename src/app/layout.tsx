@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_KR } from "next/font/google";
 
 import "./globals.css";
+import { TermProvider } from "@/components/glossary/term-provider";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { siteConfig } from "@/config/site";
@@ -29,11 +30,13 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className={`${notoSansKr.variable} font-sans`}>
+        <TermProvider>
         <div className="flex min-h-screen flex-col">
           <SiteHeader />
           <main className="flex-1">{children}</main>
           <SiteFooter />
         </div>
+        </TermProvider>
       </body>
     </html>
   );

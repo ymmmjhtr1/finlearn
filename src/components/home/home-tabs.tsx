@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BookOpen, LineChart, Newspaper, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useTerms } from "@/components/glossary/term-provider";
 import { GlossarySection } from "@/components/home/glossary-section";
 import { NewsSection } from "@/components/home/news-section";
 import { PortfolioSection } from "@/components/home/portfolio-section";
@@ -20,10 +21,17 @@ export function HomeTabs() {
   const [active, setActive] = useState<TabId>("news");
   const [query, setQuery] = useState("");
 
-  function openGlossary(term: string) {
-    setQuery(term);
-    setActive("glossary");
-  }
+  const { setViewMoreHandler } = useTerms();
+
+  // 용어 모달의 "용어사전 탭에서 더 보기": 탭을 전환하고 해당 용어로 검색한다.
+  useEffect(() => {
+    setViewMoreHandler((term) => {
+      setQuery(term);
+      setActive("glossary");
+      document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
+    });
+    return () => setViewMoreHandler(null);
+  }, [setViewMoreHandler]);
 
   return (
     <section id="features" className="container pb-20">
@@ -54,7 +62,7 @@ export function HomeTabs() {
       </div>
 
       <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
-        {active === "news" && <NewsSection onTermClick={openGlossary} />}
+        {active === "news" && <NewsSection />}
         {active === "glossary" && (
           <GlossarySection query={query} onQueryChange={setQuery} />
         )}
