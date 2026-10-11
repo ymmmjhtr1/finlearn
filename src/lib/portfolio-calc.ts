@@ -2,7 +2,7 @@ import {
   CASH_COLOR,
   STOCK_COLORS,
   type AllocationSlice,
-} from "@/components/home/allocation-chart";
+} from "@/lib/allocation-colors";
 import { INITIAL_CAPITAL } from "@/data/portfolio";
 import { stocks } from "@/data/stocks";
 import { calcTradeCost } from "@/lib/portfolio-storage";

@@ -3,27 +3,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-export interface AllocationSlice {
-  /** 같은 자산은 거래 후에도 같은 색을 갖도록 고정 키로 색을 정한다. */
-  key: string;
-  name: string;
-  value: number;
-  color: string;
-}
-
-export const CASH_COLOR = "#94a3b8";
-// 종목별 팔레트 (종목 순서에 고정)
-export const STOCK_COLORS = [
-  "#10b981",
-  "#6366f1",
-  "#f59e0b",
-  "#ec4899",
-  "#06b6d4",
-  "#8b5cf6",
-  "#84cc16",
-  "#f97316",
-];
+import { CASH_COLOR, type AllocationSlice } from "@/lib/allocation-colors";
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 const percent = (value: number, total: number) =>
