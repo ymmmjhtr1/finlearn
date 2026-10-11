@@ -2,6 +2,28 @@ import { INITIAL_CASH } from "@/data/mock";
 
 export const PORTFOLIO_STORAGE_KEY = "finlearn:portfolio:v1";
 
+/** 증권사 위탁수수료율 (매수·매도 공통) */
+export const BROKER_FEE_RATE = 0.00015;
+/** 증권거래세율 (매도 시에만 부과) */
+export const SECURITIES_TAX_RATE = 0.0018;
+
+export interface TradeCost {
+  fee: number;
+  tax: number;
+}
+
+/**
+ * 거래 금액에 대한 수수료/증권거래세를 계산한다. 원 미만은 절사한다.
+ * enabled가 false면 비용은 0이다.
+ */
+export function calcTradeCost(side: "buy" | "sell", amount: number, enabled = true): TradeCost {
+  if (!enabled || amount <= 0) return { fee: 0, tax: 0 };
+  return {
+    fee: Math.floor(amount * BROKER_FEE_RATE),
+    tax: side === "sell" ? Math.floor(amount * SECURITIES_TAX_RATE) : 0,
+  };
+}
+
 /**
  * 모의투자 잔고(localStorage)에 보상금을 입금한다.
  * 저장된 모의투자 데이터가 없으면 기본 자산(1,000만 원)에서 시작해 새로 만든다.

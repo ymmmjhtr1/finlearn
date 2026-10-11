@@ -20,7 +20,7 @@ import {
   STOCK_COLORS,
   type AllocationSlice,
 } from "@/components/home/allocation-chart";
-import { PORTFOLIO_STORAGE_KEY } from "@/lib/portfolio-storage";
+import { PORTFOLIO_STORAGE_KEY, calcTradeCost } from "@/lib/portfolio-storage";
 import { StockChartDialog } from "@/components/home/stock-chart-dialog";
 import {
   INITIAL_CAPITAL,
@@ -37,6 +37,13 @@ const pct = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
 const tone = (n: number) =>
   n > 0 ? "text-rose-500" : n < 0 ? "text-blue-500" : "text-muted-foreground";
 
+const toneBg = (n: number) =>
+  n > 0
+    ? "bg-rose-500/10 text-rose-500"
+    : n < 0
+      ? "bg-blue-500/10 text-blue-500"
+      : "bg-muted text-muted-foreground";
+
 const sectors = Array.from(new Set(stocks.map((s) => s.sector)));
 
 const stockInfoByCode = Object.fromEntries(stocks.map((s) => [s.code, s]));
@@ -52,7 +59,12 @@ interface Transaction {
   type: Side;
   quantity: number;
   price: number;
+  /** 체결 금액 (수수료/세금 제외) */
   total: number;
+  /** 증권사 수수료 (이전 버전 데이터에는 없음) */
+  fee?: number;
+  /** 증권거래세 (매도 시, 이전 버전 데이터에는 없음) */
+  tax?: number;
 }
 
 interface SavedState {
@@ -61,6 +73,8 @@ interface SavedState {
   cashBalance: number;
   holdings: Holding[];
   transactionHistory: Transaction[];
+  /** 수수료/세금 반영 여부. 이전 버전 데이터에는 없으며 기본값은 true. */
+  feeEnabled: boolean;
 }
 
 const STORAGE_KEY = PORTFOLIO_STORAGE_KEY;
@@ -87,6 +101,7 @@ function loadSaved(): SavedState | null {
       cashBalance: d.cashBalance,
       holdings,
       transactionHistory,
+      feeEnabled: typeof d.feeEnabled === "boolean" ? d.feeEnabled : true,
     };
   } catch {
     return null;
@@ -144,6 +159,7 @@ export function PortfolioSection() {
   const [holdings, setHoldings] = useState<Holding[]>(initialHoldings);
   const [history, setHistory] = useState<Transaction[]>([]);
   const [bonusCash, setBonusCash] = useState(0);
+  const [feeEnabled, setFeeEnabled] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -156,6 +172,7 @@ export function PortfolioSection() {
       setBonusCash(saved.bonusCash);
       setHoldings(saved.holdings);
       setHistory(saved.transactionHistory);
+      setFeeEnabled(saved.feeEnabled);
     }
     setLoaded(true);
   }, []);
@@ -169,12 +186,13 @@ export function PortfolioSection() {
         cashBalance: cash,
         holdings,
         transactionHistory: history,
+        feeEnabled,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
       // 저장소 사용 불가(시크릿 모드 등) 시에는 메모리 상태로만 동작
     }
-  }, [loaded, cash, bonusCash, holdings, history]);
+  }, [loaded, cash, bonusCash, holdings, history, feeEnabled]);
 
   function resetAll() {
     setCash(INITIAL_CASH);
@@ -275,12 +293,28 @@ export function PortfolioSection() {
   const tradeHeld = trade ? heldQty(trade.code) : 0;
   const tradeAmount = tradeStock ? tradeStock.price * qty : 0;
   const isBuy = trade?.side === "buy";
-  const maxQty = tradeStock
-    ? isBuy
-      ? Math.floor(cash / tradeStock.price)
-      : tradeHeld
-    : 0;
-  const cashAfter = isBuy ? cash - tradeAmount : cash + tradeAmount;
+  const tradeCost = calcTradeCost(trade?.side ?? "buy", tradeAmount, feeEnabled);
+  const tradeCostTotal = tradeCost.fee + tradeCost.tax;
+  let maxQty = 0;
+  if (tradeStock) {
+    if (isBuy) {
+      // 수수료까지 더한 금액이 현금을 넘지 않는 최대 수량
+      maxQty = Math.floor(cash / tradeStock.price);
+      while (
+        maxQty > 0 &&
+        tradeStock.price * maxQty +
+          calcTradeCost("buy", tradeStock.price * maxQty, feeEnabled).fee >
+          cash
+      ) {
+        maxQty -= 1;
+      }
+    } else {
+      maxQty = tradeHeld;
+    }
+  }
+  const cashAfter = isBuy
+    ? cash - tradeAmount - tradeCostTotal
+    : cash + tradeAmount - tradeCostTotal;
   const tradeError =
     qty > maxQty
       ? isBuy
@@ -292,7 +326,7 @@ export function PortfolioSection() {
     if (!trade || !tradeStock || qty < 1 || tradeError) return;
     const { code, side } = trade;
     if (side === "buy") {
-      setCash((c) => c - tradeAmount);
+      setCash((c) => c - tradeAmount - tradeCostTotal);
       setHoldings((prev) => {
         const found = prev.find((h) => h.code === code);
         if (!found) return [...prev, { code, quantity: qty, avgPrice: tradeStock.price }];
@@ -301,7 +335,7 @@ export function PortfolioSection() {
         return prev.map((h) => (h.code === code ? { ...h, quantity, avgPrice } : h));
       });
     } else {
-      setCash((c) => c + tradeAmount);
+      setCash((c) => c + tradeAmount - tradeCostTotal);
       setHoldings((prev) =>
         prev
           .map((h) => (h.code === code ? { ...h, quantity: h.quantity - qty } : h))
@@ -317,10 +351,14 @@ export function PortfolioSection() {
       quantity: qty,
       price: tradeStock.price,
       total: tradeAmount,
+      fee: tradeCost.fee,
+      tax: tradeCost.tax,
     };
     setHistory((prev) => [record, ...prev].slice(0, HISTORY_LIMIT));
     setMessage(
-      `${tradeStock.name} ${qty}주를 ${won(tradeAmount)}에 ${side === "buy" ? "매수" : "매도"}했어요.`
+      `${tradeStock.name} ${qty}주를 ${won(tradeAmount)}에 ${side === "buy" ? "매수" : "매도"}했어요.${
+        tradeCostTotal > 0 ? ` (수수료·세금 ${won(tradeCostTotal)})` : ""
+      }`
     );
     setTrade(null);
   }
@@ -350,7 +388,7 @@ export function PortfolioSection() {
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="grid content-start gap-4 sm:grid-cols-2 lg:col-span-3">
           {[
-            { label: "총 자산", value: won(totalAsset), sub: null },
+            { label: "총 자산", value: won(totalAsset), sub: null, badge: true },
             { label: "투자 수익", value: won(totalProfit), sub: pct(totalRate), colored: totalProfit },
             { label: "보유 현금", value: won(cash), sub: null },
             { label: "주식 평가금액", value: won(stockValue), sub: null },
@@ -364,6 +402,21 @@ export function PortfolioSection() {
                   {s.value}
                 </div>
                 {s.sub && <div className={cn("text-sm", tone(s.colored ?? 0))}>{s.sub}</div>}
+                {s.badge && (
+                  <div
+                    className={cn(
+                      "mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                      toneBg(totalProfit)
+                    )}
+                  >
+                    <span>초기 자본 대비 {pct(totalRate)}</span>
+                    <span aria-hidden>·</span>
+                    <span>
+                      {totalProfit > 0 ? "+" : ""}
+                      {won(totalProfit)}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -373,9 +426,37 @@ export function PortfolioSection() {
         </div>
       </div>
 
-      <p role="status" className="min-h-5 text-sm text-primary">
-        {message}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p role="status" className="min-h-5 text-sm text-primary">
+          {message}
+        </p>
+        <div className="flex items-center gap-2 text-sm">
+          <button
+            type="button"
+            role="switch"
+            id="fee-switch"
+            aria-checked={feeEnabled}
+            onClick={() => setFeeEnabled((v) => !v)}
+            className={cn(
+              "relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              feeEnabled ? "bg-primary" : "bg-muted-foreground/40"
+            )}
+          >
+            <span
+              className={cn(
+                "absolute left-0.5 top-0.5 size-4 rounded-full bg-background transition-transform",
+                feeEnabled && "translate-x-4"
+              )}
+            />
+          </button>
+          <label htmlFor="fee-switch" className="cursor-pointer">
+            거래 수수료/세금 반영
+            <span className="ml-1 text-xs text-muted-foreground">
+              (매수 0.015% · 매도 0.195%)
+            </span>
+          </label>
+        </div>
+      </div>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">내 보유 종목</h2>
@@ -385,14 +466,16 @@ export function PortfolioSection() {
           </p>
         ) : (
           <div className="overflow-x-auto rounded-xl border">
-            <table className="w-full min-w-[680px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="bg-muted text-muted-foreground">
                 <tr>
                   <th className="p-3 text-left font-medium">종목</th>
                   <th className="p-3 text-right font-medium">수량</th>
-                  <th className="p-3 text-right font-medium">평균 매수가</th>
+                  <th className="p-3 text-right font-medium">매수 평균단가</th>
                   <th className="p-3 text-right font-medium">현재가</th>
+                  <th className="p-3 text-right font-medium">평가금액</th>
                   <th className="p-3 text-right font-medium">평가손익</th>
+                  <th className="p-3 text-right font-medium">수익률</th>
                   <th className="p-3 text-right font-medium">거래</th>
                 </tr>
               </thead>
@@ -405,10 +488,13 @@ export function PortfolioSection() {
                     <td className="p-3 text-right">{h.quantity}주</td>
                     <td className="p-3 text-right">{won(h.avgPrice)}</td>
                     <td className="p-3 text-right">{won(h.stock.price)}</td>
+                    <td className="p-3 text-right">{won(h.value)}</td>
                     <td className={cn("p-3 text-right", tone(h.profit))}>
+                      {h.profit > 0 ? "+" : ""}
                       {won(h.profit)}
-                      <br />
-                      <span className="text-xs">{pct(h.rate)}</span>
+                    </td>
+                    <td className={cn("p-3 text-right font-medium", tone(h.profit))}>
+                      {pct(h.rate)}
                     </td>
                     <td className="p-3">
                       <TradeButtons
@@ -526,7 +612,7 @@ export function PortfolioSection() {
           <p className="py-6 text-center text-muted-foreground">아직 거래 내역이 없어요.</p>
         ) : (
           <div className="max-h-96 overflow-auto rounded-xl border">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="sticky top-0 bg-muted text-muted-foreground">
                 <tr>
                   <th className="p-3 text-left font-medium">거래 일시</th>
@@ -535,6 +621,8 @@ export function PortfolioSection() {
                   <th className="p-3 text-right font-medium">수량</th>
                   <th className="p-3 text-right font-medium">체결 단가</th>
                   <th className="p-3 text-right font-medium">총 거래금액</th>
+                  <th className="p-3 text-right font-medium">수수료</th>
+                  <th className="p-3 text-right font-medium">증권거래세</th>
                 </tr>
               </thead>
               <tbody>
@@ -553,6 +641,12 @@ export function PortfolioSection() {
                     <td className="p-3 text-right">{t.quantity}주</td>
                     <td className="p-3 text-right">{won(t.price)}</td>
                     <td className="p-3 text-right">{won(t.total)}</td>
+                    <td className="p-3 text-right text-muted-foreground">
+                      {isNum(t.fee) ? won(t.fee) : "-"}
+                    </td>
+                    <td className="p-3 text-right text-muted-foreground">
+                      {isNum(t.tax) ? won(t.tax) : "-"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -672,6 +766,28 @@ export function PortfolioSection() {
                     {won(tradeAmount)}
                   </dd>
                 </div>
+                {feeEnabled && (
+                  <>
+                    <div className="flex justify-between">
+                      <dt className="text-muted-foreground">증권사 수수료 (0.015%)</dt>
+                      <dd>−{won(tradeCost.fee)}</dd>
+                    </div>
+                    {!isBuy && (
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">증권거래세 (0.18%)</dt>
+                        <dd>−{won(tradeCost.tax)}</dd>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <dt className="text-muted-foreground">
+                        {isBuy ? "총 결제 금액" : "실 수령 금액"}
+                      </dt>
+                      <dd className="font-semibold">
+                        {won(isBuy ? tradeAmount + tradeCostTotal : tradeAmount - tradeCostTotal)}
+                      </dd>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between border-t pt-2">
                   <dt className="font-medium">거래 후 남은 잔고</dt>
                   <dd className={cn("font-bold", cashAfter < 0 && "text-destructive")}>
