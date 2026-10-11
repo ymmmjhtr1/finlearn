@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { GLOSSARY_CATEGORIES, type GlossaryCategory } from "@/data/mock";
+import { GLOSSARY_CATEGORIES, type GlossaryCategory } from "@/types/glossary";
 
 export interface NewTermInput {
   term: string;

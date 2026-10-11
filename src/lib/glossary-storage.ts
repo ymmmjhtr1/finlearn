@@ -1,9 +1,10 @@
-import { GLOSSARY_CATEGORIES, glossaryTerms, type GlossaryTerm } from "@/data/mock";
+import { glossaryTerms } from "@/data/glossary";
+import { GLOSSARY_CATEGORIES, type GlossaryTerm } from "@/types/glossary";
 
-export const GLOSSARY_STORAGE_KEY = "finlearn_glossary_terms";
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from "@/lib/storage-keys";
 
 /**
- * localStorage에는 "기본 목록(mock.ts)과 다른 부분"만 저장한다.
+ * localStorage에는 "기본 목록(data/glossary.ts)과 다른 부분"만 저장한다.
  * - custom: 사용자가 추가한 용어 전체
  * - seen: 용어 이름 → 카드뉴스에 마지막으로 등장한 기사 날짜
  * 기본 용어는 코드에서 항상 불러오므로, 저장된 값과 병합해도 기본 용어가 사라지지 않는다.
@@ -22,7 +23,10 @@ const isStr = (v: unknown): v is string => typeof v === "string";
 
 export function loadStoredGlossary(): StoredGlossary | null {
   try {
-    const raw = localStorage.getItem(GLOSSARY_STORAGE_KEY);
+    // 새 키에 값이 없으면 이전 키(finlearn_glossary_terms)에서 읽는다. 다음 저장 때 새 키로 옮겨진다.
+    const raw =
+      localStorage.getItem(STORAGE_KEYS.GLOSSARY) ??
+      localStorage.getItem(LEGACY_STORAGE_KEYS.GLOSSARY);
     if (!raw) return null;
     const d = JSON.parse(raw);
     if (!d || !Array.isArray(d.custom) || typeof d.seen !== "object" || !d.seen) return null;
@@ -51,7 +55,7 @@ export function loadStoredGlossary(): StoredGlossary | null {
 
 export function saveStoredGlossary(store: StoredGlossary): void {
   try {
-    localStorage.setItem(GLOSSARY_STORAGE_KEY, JSON.stringify(store));
+    localStorage.setItem(STORAGE_KEYS.GLOSSARY, JSON.stringify(store));
   } catch {
     // 저장소를 쓸 수 없으면 이번 방문 동안만 유지
   }

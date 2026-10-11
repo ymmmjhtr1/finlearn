@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 
-import { stocks } from "@/data/mock";
+import { stocks } from "@/data/stocks";
 import type { PricePoint, Quote, StocksResponse } from "@/lib/stock-types";
 
 export const dynamic = "force-dynamic";

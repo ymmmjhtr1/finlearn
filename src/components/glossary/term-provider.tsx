@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { GlossaryTerm } from "@/data/mock";
+import type { GlossaryTerm } from "@/types/glossary";
 import {
   TermEditorDialog,
   type AddTermResult,
@@ -39,6 +39,7 @@ import {
   saveStoredGlossary,
   type StoredGlossary,
 } from "@/lib/glossary-storage";
+import { STORAGE_KEYS } from "@/lib/storage-keys";
 
 
 interface TermContextValue {
@@ -126,7 +127,7 @@ export function TermProvider({ children }: { children: ReactNode }) {
   // 다른 탭에서 용어를 추가/기록해도 반영
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (e.key !== "finlearn_glossary_terms") return;
+      if (e.key !== STORAGE_KEYS.GLOSSARY) return;
       // 모든 변경은 즉시 저장되므로 병합이 아니라 저장된 값으로 교체한다. (다른 탭의 삭제가 되살아나지 않게)
       setStore(loadStoredGlossary() ?? emptyStore());
     }

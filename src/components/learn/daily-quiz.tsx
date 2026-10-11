@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { depositReward } from "@/lib/portfolio-storage";
+import { STORAGE_KEYS } from "@/lib/storage-keys";
 
 const REWARD = 500_000;
-const QUIZ_KEY = "finlearn:quiz:v1";
+const QUIZ_KEY = STORAGE_KEYS.QUIZ;
 
 interface Question {
   id: string;

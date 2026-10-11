@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTerms } from "@/components/glossary/term-provider";
-import { GLOSSARY_CATEGORIES, type GlossaryCategory } from "@/data/mock";
+import { GLOSSARY_CATEGORIES, type GlossaryCategory } from "@/types/glossary";
 
 type SortKey = "ko" | "en";
 

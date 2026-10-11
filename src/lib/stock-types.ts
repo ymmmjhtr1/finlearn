@@ -1,4 +1,4 @@
-import type { Stock } from "@/data/mock";
+import type { Stock } from "@/types/stock";
 
 export interface PricePoint {
   /** MM/DD */

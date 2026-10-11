@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 import { TermText } from "@/components/glossary/term-text";
 import { useTerms } from "@/components/glossary/term-provider";
 import { findMentioned } from "@/lib/glossary-match";
-import { newsCategories, type NewsCategory, type NewsItem } from "@/data/mock";
+import { newsCategories } from "@/data/news";
+import type { NewsCategory, NewsItem } from "@/types/news";
 
 function NewsCard({ item }: { item: NewsItem }) {
   const { openTerm, pattern } = useTerms();

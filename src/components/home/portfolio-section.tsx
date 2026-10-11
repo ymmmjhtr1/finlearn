@@ -14,21 +14,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { AllocationChart } from "@/components/home/allocation-chart";
 import {
-  AllocationChart,
-  CASH_COLOR,
-  STOCK_COLORS,
-  type AllocationSlice,
-} from "@/components/home/allocation-chart";
-import { PORTFOLIO_STORAGE_KEY, calcTradeCost } from "@/lib/portfolio-storage";
+  applyTrade,
+  buildSlices,
+  evaluate,
+  quoteTrade,
+  stockInfoByCode,
+  summarize,
+} from "@/lib/portfolio-calc";
+import { STORAGE_KEYS } from "@/lib/storage-keys";
 import { StockChartDialog } from "@/components/home/stock-chart-dialog";
-import {
-  INITIAL_CAPITAL,
-  INITIAL_CASH,
-  initialHoldings,
-  stocks,
-  type Holding,
-} from "@/data/mock";
+import { INITIAL_CAPITAL, INITIAL_CASH, initialHoldings } from "@/data/portfolio";
+import { stocks } from "@/data/stocks";
+import type { SavedState, Side, Transaction } from "@/types/portfolio";
+import type { Holding } from "@/types/stock";
 import type { LiveStock, Quote, StocksResponse } from "@/lib/stock-types";
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -46,39 +46,8 @@ const toneBg = (n: number) =>
 
 const sectors = Array.from(new Set(stocks.map((s) => s.sector)));
 
-const stockInfoByCode = Object.fromEntries(stocks.map((s) => [s.code, s]));
 
-type Side = "buy" | "sell";
-
-interface Transaction {
-  id: string;
-  /** 거래 일시 (ISO 문자열) */
-  date: string;
-  code: string;
-  name: string;
-  type: Side;
-  quantity: number;
-  price: number;
-  /** 체결 금액 (수수료/세금 제외) */
-  total: number;
-  /** 증권사 수수료 (이전 버전 데이터에는 없음) */
-  fee?: number;
-  /** 증권거래세 (매도 시, 이전 버전 데이터에는 없음) */
-  tax?: number;
-}
-
-interface SavedState {
-  /** 퀴즈 보상 등으로 추가 입금된 누적 금액. 수익 계산의 기준 자본에 포함된다. */
-  bonusCash: number;
-  cashBalance: number;
-  holdings: Holding[];
-  transactionHistory: Transaction[];
-  /** 수수료/세금 반영 여부. 이전 버전 데이터에는 없으며 기본값은 true. */
-  feeEnabled: boolean;
-}
-
-const STORAGE_KEY = PORTFOLIO_STORAGE_KEY;
-const HISTORY_LIMIT = 200;
+const STORAGE_KEY = STORAGE_KEYS.PORTFOLIO;
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
@@ -177,6 +146,23 @@ export function PortfolioSection() {
     setLoaded(true);
   }, []);
 
+  // 다른 탭(퀴즈 보상 입금, 거래 등)에서 저장소가 바뀌면 메모리 상태를 최신 저장값으로 맞춘다.
+  // 맞추지 않으면 이 탭의 오래된 상태가 다음 저장 때 다른 탭의 변경을 덮어쓴다.
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== STORAGE_KEY) return;
+      const saved = loadSaved();
+      if (!saved) return;
+      setCash(saved.cashBalance);
+      setBonusCash(saved.bonusCash);
+      setHoldings(saved.holdings);
+      setHistory(saved.transactionHistory);
+      setFeeEnabled(saved.feeEnabled);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   // 로드가 끝난 뒤의 모든 변경을 즉시 저장한다.
   useEffect(() => {
     if (!loaded) return;
@@ -247,27 +233,9 @@ export function PortfolioSection() {
 
   const heldQty = (code: string) => holdings.find((h) => h.code === code)?.quantity ?? 0;
 
-  const evaluated = holdings.map((h) => {
-    // 시세를 받지 못한 종목은 평단가로 평가해 손익이 0으로 보이게 한다.
-    const stock = { ...stockInfoByCode[h.code], price: liveByCode[h.code]?.price ?? h.avgPrice };
-    const value = stock.price * h.quantity;
-    const cost = h.avgPrice * h.quantity;
-    return { ...h, stock, value, profit: value - cost, rate: ((value - cost) / cost) * 100 };
-  });
-  const stockValue = evaluated.reduce((sum, h) => sum + h.value, 0);
-  const totalAsset = cash + stockValue;
-  // 도넛 차트용 자산 구성: 현금 + 보유 종목별 평가금액 (종목 색은 종목 순서에 고정)
-  const slices: AllocationSlice[] = [
-    { key: "cash", name: "보유 현금", value: cash, color: CASH_COLOR },
-    ...evaluated.map((h) => ({
-      key: h.code,
-      name: h.stock.name,
-      value: h.value,
-      color: STOCK_COLORS[stocks.findIndex((x) => x.code === h.code) % STOCK_COLORS.length],
-    })),
-  ];
-  const totalProfit = totalAsset - (INITIAL_CAPITAL + bonusCash);
-  const totalRate = (totalProfit / (INITIAL_CAPITAL + bonusCash)) * 100;
+  const evaluated = evaluate(holdings, liveByCode);
+  const { stockValue, totalAsset, totalProfit, totalRate } = summarize(evaluated, cash, bonusCash);
+  const slices = buildSlices(evaluated, cash);
 
   const keyword = search.trim().toLowerCase();
   const visibleStocks = liveStocks.filter(
@@ -291,70 +259,46 @@ export function PortfolioSection() {
 
   const tradeStock = trade ? liveByCode[trade.code] ?? null : null;
   const tradeHeld = trade ? heldQty(trade.code) : 0;
-  const tradeAmount = tradeStock ? tradeStock.price * qty : 0;
   const isBuy = trade?.side === "buy";
-  const tradeCost = calcTradeCost(trade?.side ?? "buy", tradeAmount, feeEnabled);
-  const tradeCostTotal = tradeCost.fee + tradeCost.tax;
-  let maxQty = 0;
-  if (tradeStock) {
-    if (isBuy) {
-      // 수수료까지 더한 금액이 현금을 넘지 않는 최대 수량
-      maxQty = Math.floor(cash / tradeStock.price);
-      while (
-        maxQty > 0 &&
-        tradeStock.price * maxQty +
-          calcTradeCost("buy", tradeStock.price * maxQty, feeEnabled).fee >
-          cash
-      ) {
-        maxQty -= 1;
-      }
-    } else {
-      maxQty = tradeHeld;
-    }
-  }
-  const cashAfter = isBuy
-    ? cash - tradeAmount - tradeCostTotal
-    : cash + tradeAmount - tradeCostTotal;
-  const tradeError =
-    qty > maxQty
-      ? isBuy
-        ? "현금이 부족해요."
-        : `보유 수량(${tradeHeld}주)을 넘을 수 없어요.`
+  const quote =
+    trade && tradeStock
+      ? quoteTrade({
+          side: trade.side,
+          price: tradeStock.price,
+          qty,
+          cash,
+          held: tradeHeld,
+          feeEnabled,
+        })
       : null;
+  const tradeAmount = quote?.amount ?? 0;
+  const tradeCost = { fee: quote?.fee ?? 0, tax: quote?.tax ?? 0 };
+  const tradeCostTotal = quote?.costTotal ?? 0;
+  const maxQty = quote?.maxQty ?? 0;
+  const cashAfter = quote?.cashAfter ?? cash;
+  const tradeError = quote?.error ?? null;
 
   function executeTrade() {
-    if (!trade || !tradeStock || qty < 1 || tradeError) return;
+    if (!trade || !tradeStock || !quote || qty < 1 || tradeError) return;
     const { code, side } = trade;
-    if (side === "buy") {
-      setCash((c) => c - tradeAmount - tradeCostTotal);
-      setHoldings((prev) => {
-        const found = prev.find((h) => h.code === code);
-        if (!found) return [...prev, { code, quantity: qty, avgPrice: tradeStock.price }];
-        const quantity = found.quantity + qty;
-        const avgPrice = (found.avgPrice * found.quantity + tradeAmount) / quantity;
-        return prev.map((h) => (h.code === code ? { ...h, quantity, avgPrice } : h));
-      });
-    } else {
-      setCash((c) => c + tradeAmount - tradeCostTotal);
-      setHoldings((prev) =>
-        prev
-          .map((h) => (h.code === code ? { ...h, quantity: h.quantity - qty } : h))
-          .filter((h) => h.quantity > 0)
-      );
-    }
-    const record: Transaction = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      date: new Date().toISOString(),
-      code,
-      name: tradeStock.name,
-      type: side,
-      quantity: qty,
-      price: tradeStock.price,
-      total: tradeAmount,
-      fee: tradeCost.fee,
-      tax: tradeCost.tax,
-    };
-    setHistory((prev) => [record, ...prev].slice(0, HISTORY_LIMIT));
+    const next = applyTrade(
+      { cashBalance: cash, holdings, transactionHistory: history },
+      {
+        code,
+        name: tradeStock.name,
+        side,
+        price: tradeStock.price,
+        qty,
+        quote,
+        meta: {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          date: new Date().toISOString(),
+        },
+      }
+    );
+    setCash(next.cashBalance);
+    setHoldings(next.holdings);
+    setHistory(next.transactionHistory);
     setMessage(
       `${tradeStock.name} ${qty}주를 ${won(tradeAmount)}에 ${side === "buy" ? "매수" : "매도"}했어요.${
         tradeCostTotal > 0 ? ` (수수료·세금 ${won(tradeCostTotal)})` : ""

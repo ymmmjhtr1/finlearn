@@ -1,7 +1,9 @@
 import { XMLParser } from "fast-xml-parser";
 import { NextResponse } from "next/server";
 
-import { glossaryTerms, stocks, type NewsCategory, type NewsItem } from "@/data/mock";
+import { glossaryTerms } from "@/data/glossary";
+import { stocks } from "@/data/stocks";
+import type { NewsCategory, NewsItem } from "@/types/news";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,7 @@ const FEEDS = [
   { source: "한국경제 증권", url: "https://www.hankyung.com/feed/finance" },
 ];
 
+const CACHE_MS = 10 * 60_000;
 const MAX_ITEMS = 9;
 const MIN_YESTERDAY = 3;
 const HOUR = 3_600_000;
@@ -25,6 +28,14 @@ interface Article {
   source: string;
   published: number;
 }
+
+interface NewsResponse {
+  range: "yesterday" | "48h";
+  items: NewsItem[];
+}
+
+// 모듈 레벨 메모리 캐시. force-dynamic에서는 fetch의 revalidate가 적용되지 않으므로 직접 관리한다.
+let cache: { at: number; data: NewsResponse } | null = null;
 
 const parser = new XMLParser({ ignoreAttributes: true, trimValues: true });
 
@@ -75,7 +86,7 @@ function clean(html: string): string {
 async function fetchFeed(feed: (typeof FEEDS)[number]): Promise<Article[]> {
   const res = await fetch(feed.url, {
     headers: { "User-Agent": "Mozilla/5.0 (finlearn RSS reader)" },
-    next: { revalidate: 600 },
+    cache: "no-store",
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`${feed.source} ${res.status}`);
@@ -207,7 +218,8 @@ function toCard(a: Article, index: number): NewsItem {
   const body = a.description.replace(/^\([^)]*\)\s*[^=]{0,30}=\s*/, "");
   const sentences = splitSentences(body);
 
-  const summary = (sentences[0] ?? stripEditorMarks(a.title)).replace(/.{3}$/, "…");
+  // 원문이 이미 "..." 또는 "…"로 끝나는 경우에만 말줄임표를 "…"로 통일한다.
+  const summary = (sentences[0] ?? stripEditorMarks(a.title)).replace(/s*(?:.{3}|…)$/, "…");
   const used = [summary];
   const points: string[] = [];
   const add = (text: string | null | undefined) => {
@@ -251,10 +263,16 @@ function toCard(a: Article, index: number): NewsItem {
 }
 
 export async function GET() {
+  if (cache && Date.now() - cache.at < CACHE_MS) {
+    return NextResponse.json(cache.data);
+  }
+
   const results = await Promise.allSettled(FEEDS.map(fetchFeed));
   const articles = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
 
   if (articles.length === 0) {
+    // 외부 장애 시 오래된 캐시라도 있으면 그것을 돌려준다.
+    if (cache) return NextResponse.json(cache.data);
     return NextResponse.json({ error: "뉴스를 불러오지 못했어요." }, { status: 502 });
   }
 
@@ -289,8 +307,10 @@ export async function GET() {
     )
     .slice(0, MAX_ITEMS);
 
-  return NextResponse.json({
+  const data: NewsResponse = {
     range: useFallback ? "48h" : "yesterday",
     items: picked.map(toCard),
-  });
+  };
+  cache = { at: Date.now(), data };
+  return NextResponse.json(data);
 }

@@ -1,6 +1,6 @@
-import { INITIAL_CASH } from "@/data/mock";
+import { INITIAL_CASH } from "@/data/portfolio";
 
-export const PORTFOLIO_STORAGE_KEY = "finlearn:portfolio:v1";
+import { STORAGE_KEYS } from "@/lib/storage-keys";
 
 /** 증권사 위탁수수료율 (매수·매도 공통) */
 export const BROKER_FEE_RATE = 0.00015;
@@ -32,7 +32,7 @@ export function calcTradeCost(side: "buy" | "sell", amount: number, enabled = tr
  */
 export function depositReward(amount: number): boolean {
   try {
-    const raw = localStorage.getItem(PORTFOLIO_STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEYS.PORTFOLIO);
     let state: Record<string, unknown> | null = null;
     try {
       state = raw ? JSON.parse(raw) : null;
@@ -53,7 +53,7 @@ export function depositReward(amount: number): boolean {
       cashBalance: base.cashBalance + amount,
       bonusCash: (typeof base.bonusCash === "number" ? base.bonusCash : 0) + amount,
     };
-    localStorage.setItem(PORTFOLIO_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(STORAGE_KEYS.PORTFOLIO, JSON.stringify(next));
     return true;
   } catch {
     return false;
