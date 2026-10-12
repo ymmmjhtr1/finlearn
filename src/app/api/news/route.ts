@@ -110,11 +110,22 @@ async function fetchFeed(feed: (typeof FEEDS)[number]): Promise<Article[]> {
   });
 }
 
-function categorize(text: string): NewsCategory {
+// "[연합뉴스 이 시각 헤드라인]" 같은 모음성 기사
+const ROUNDUP_TITLE = /이\s?시각\s?헤드라인|헤드라인|주요\s?뉴스|뉴스\s?모음|오늘의\s?뉴스|뉴스\s?브리핑/;
+
+// 금융·경제 핵심 키워드 (카테고리 키워드 외에 기업 실적류 포함)
+const FINANCE_KEYWORDS =
+  /환율|원\/달러|달러|엔화|외환|금리|국채|연준|채권|코스피|코스닥|증시|지수|ETF|주가|투자자|거래소|실적|배당|영업이익|순이익|매출|증권|상장|공모|인수합병|M&A|자사주|시가총액|물가|무역수지|수출|GDP|경상수지/;
+
+const STOCK_NAMES = stocks.map((s) => s.name);
+
+/** 카테고리를 판별한다. 금융·경제 기사가 아니면 null (카드로 만들지 않음) */
+function categorize(text: string): NewsCategory | null {
   if (/환율|원\/달러|달러|엔화|외환/.test(text)) return "환율";
   if (/금리|국채|연준|기준금리|한국은행|한은|채권/.test(text)) return "금리";
   if (/코스피|코스닥|증시|지수|ETF|주가|투자자|거래소/.test(text)) return "시장";
-  return "기업";
+  if (FINANCE_KEYWORDS.test(text) || STOCK_NAMES.some((n) => text.includes(n))) return "기업";
+  return null;
 }
 
 // 본문에서 찾아 줄 기관·종목 이름 (정규식 오탐을 피하려고 목록 기반)
@@ -210,17 +221,17 @@ function extractFacts(text: string, exclude: string): string | null {
  * 기사 → 카드뉴스(요약 1 + 핵심 포인트 최대 3).
  * 기사에서 실제로 뽑아낸 텍스트만 쓰며, 재료가 부족하면 슬라이드 수를 줄인다.
  */
-function toCard(a: Article, index: number): NewsItem {
+function toCard(a: Article, category: NewsCategory, index: number): NewsItem {
   const fullText = `${a.title} ${a.description}`;
-  const category = categorize(fullText);
 
   // "(서울=연합뉴스) 홍길동 기자 = " 같은 기사 머리말 제거
   const body = a.description.replace(/^\([^)]*\)\s*[^=]{0,30}=\s*/, "");
   const sentences = splitSentences(body);
 
   // 원문이 이미 "..." 또는 "…"로 끝나는 경우에만 말줄임표를 "…"로 통일한다.
-  const summary = (sentences[0] ?? stripEditorMarks(a.title)).replace(/s*(?:.{3}|…)$/, "…");
-  const used = [summary];
+  const summary = (sentences[0] ?? stripEditorMarks(a.title)).replace(/\s*(?:\.{3,}|…)$/, "…");
+  // 제목과 같은 내용의 포인트가 들어가지 않도록 제목도 사용된 문장으로 취급한다.
+  const used = [summary, stripEditorMarks(a.title)];
   const points: string[] = [];
   const add = (text: string | null | undefined) => {
     if (!text || points.length >= 3 || isDuplicate(text, used)) return;
@@ -292,7 +303,12 @@ export async function GET() {
 
   const seen = new Set<string>();
   const picked = pool
-    .filter((a) => {
+    .flatMap((a) => {
+      if (ROUNDUP_TITLE.test(a.title)) return [];
+      const category = categorize(`${a.title} ${a.description}`);
+      return category ? [{ a, category }] : [];
+    })
+    .filter(({ a }) => {
       // 제목이 같거나, 같은 보도의 제목만 바뀐 기사(요약 앞부분 동일)는 한 번만 싣는다.
       const keys = [a.title.replace(/\s/g, "")];
       if (a.description) keys.push(normalize(a.description).slice(0, 40));
@@ -303,13 +319,13 @@ export async function GET() {
     // 요약이 있는 기사를 우선, 그 안에서는 최신순
     .sort(
       (x, y) =>
-        Number(!!y.description) - Number(!!x.description) || y.published - x.published
+        Number(!!y.a.description) - Number(!!x.a.description) || y.a.published - x.a.published
     )
     .slice(0, MAX_ITEMS);
 
   const data: NewsResponse = {
     range: useFallback ? "48h" : "yesterday",
-    items: picked.map(toCard),
+    items: picked.map(({ a, category }, i) => toCard(a, category, i)),
   };
   cache = { at: Date.now(), data };
   return NextResponse.json(data);
