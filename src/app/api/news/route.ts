@@ -167,7 +167,8 @@ const FIGURE =
 function stripEditorMarks(title: string): string {
   return title
     .replace(/\s*\((?:종합|상보|속보|\d+보|종합\d*보?|재송|수정)[^)]*\)\s*$/g, "")
-    .replace(/^\s*\[(?:속보|단독|사진|영상|특징주|마감|종합)[^\]]*\]\s*/, "")
+    // [마켓스토리], [뉴욕증시-주간전망], (서울=연합뉴스), <포토> 같은 앞쪽 머리말 태그
+    .replace(/^\s*(?:(?:\[[^\]]*\]|\([^)]*\)|<[^>]*>)\s*)+/, "")
     .trim();
 }
 
@@ -195,6 +196,38 @@ const TRAILING_ELLIPSIS = /\s*(?:\.{2,}|…)$/;
 function isCompleteSentence(s: string): boolean {
   if (TRAILING_ELLIPSIS.test(s.replace(/["'”’)\]]+$/, ""))) return false;
   return /[.!?]["'”’)\]]*$/.test(s);
+}
+
+// 서술형 종결 어미 (마침표가 없어도 문장으로 볼 수 있는 끝맺음)
+const FINAL_ENDING = /(?:[가-힣]다|[가-힣]요|[가-힣]죠|[가-힣]음|[가-힣]함|[가-힣]됨|[가-힣]임)$/;
+const TRAILING_JUNK = /[\s"'“”‘’)\]>」』…·\-–—:;,~!?.]+$/;
+
+/**
+ * 마침표 없는 문장·제목 조각을 요약문으로 다듬는다. 반드시 마침표로 끝난다.
+ * - 서술형으로 끝나면 마침표만 붙인다.
+ * - "~은/는"으로 끝나면 조사를 떼고 "에 대한 소식입니다.", "~을/를"이면 "정리했습니다."를 붙인다.
+ * - 그 밖의 조사(~의, ~와, ~에 …)는 "관련 소식입니다.", 명사형은 마침표만 붙인다.
+ */
+function toSummarySentence(text: string): string {
+  // 인용부호를 떼고 끝의 특수문자를 정리한다 (여는 따옴표만 남는 것을 막으려고 전부 제거)
+  const t = text.replace(/["“”'‘’「」『』]/g, "").replace(TRAILING_JUNK, "").trim();
+  if (!t) return text.trim();
+  if (FINAL_ENDING.test(t)) return `${t}.`;
+  if (/[은는]$/.test(t)) return `${t.slice(0, -1)}에 대한 소식입니다.`;
+  if (/[을를]$/.test(t)) return `${t} 정리했습니다.`;
+  if (/(?:의|와|과|에|에서|으로|도|만|까지|부터|보다)$/.test(t)) return `${t} 관련 소식입니다.`;
+  return `${t}.`;
+}
+
+/** 완결 문장이 없을 때, 본문의 쉼표 구분 조각 중 서술형으로 끝나는 첫 조각 */
+function pickFragment(body: string): string | null {
+  const parts = body.split(/\s*(?:,|·|ㆍ)\s*/).map((p) => p.trim());
+  // 말줄임표로 끝난 마지막 조각은 잘린 것이므로 제외한다.
+  if (parts.length > 0 && TRAILING_ELLIPSIS.test(parts[parts.length - 1])) parts.pop();
+  return (
+    parts.find((p) => normalize(p).length >= 10 && FINAL_ENDING.test(p.replace(TRAILING_JUNK, ""))) ??
+    null
+  );
 }
 
 const SUMMARY_MAX = 120;
@@ -253,7 +286,9 @@ function toCard(a: Article, category: NewsCategory, index: number): NewsItem {
   // RSS 요약은 글자 수로 잘려 오는 경우가 있어, 마침표로 끝난 완결 문장만 쓴다.
   const sentences = splitSentences(body).filter(isCompleteSentence);
 
-  const summary = buildSummary(sentences) ?? stripEditorMarks(a.title).replace(TRAILING_ELLIPSIS, "");
+  const fallback = stripEditorMarks(a.title) || a.title;
+  const summary =
+    buildSummary(sentences) ?? toSummarySentence(pickFragment(body) ?? fallback);
   // 제목과 같은 내용의 포인트가 들어가지 않도록 제목도 사용된 문장으로 취급한다.
   const used = [summary, stripEditorMarks(a.title)];
   const points: string[] = [];
