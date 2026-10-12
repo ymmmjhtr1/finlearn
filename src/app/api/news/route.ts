@@ -167,6 +167,8 @@ const FIGURE =
 function stripEditorMarks(title: string): string {
   return title
     .replace(/\s*\((?:종합|상보|속보|\d+보|종합\d*보?|재송|수정)[^)]*\)\s*$/g, "")
+    // 꼬리말 태그: 제목 끝의 [종합], <사진> 등
+    .replace(/(?:\s*(?:\[[^\]]*\]|<[^>]*>))+\s*$/, "")
     // [마켓스토리], [뉴욕증시-주간전망], (서울=연합뉴스), <포토> 같은 앞쪽 머리말 태그
     .replace(/^\s*(?:(?:\[[^\]]*\]|\([^)]*\)|<[^>]*>)\s*)+/, "")
     .trim();
@@ -205,14 +207,34 @@ const TRAILING_JUNK = /[\s"'“”‘’)\]>」』…·\-–—:;,~!?.]+$/;
 /**
  * 마침표 없는 문장·제목 조각을 요약문으로 다듬는다. 반드시 마침표로 끝난다.
  * - 서술형으로 끝나면 마침표만 붙인다.
+ * - 연결 어미(~고, ~며, ~지만)·화살표(↑↓)로 끝나면 서술어를 보완해 "~다."로 맺는다.
  * - "~은/는"으로 끝나면 조사를 떼고 "에 대한 소식입니다.", "~을/를"이면 "정리했습니다."를 붙인다.
  * - 그 밖의 조사(~의, ~와, ~에 …)는 "관련 소식입니다.", 명사형은 마침표만 붙인다.
  */
 function toSummarySentence(text: string): string {
   // 인용부호를 떼고 끝의 특수문자를 정리한다 (여는 따옴표만 남는 것을 막으려고 전부 제거)
-  const t = text.replace(/["“”'‘’「」『』]/g, "").replace(TRAILING_JUNK, "").trim();
+  let t = text.replace(/["“”'‘’「」『』]/g, "").trim();
+
+  // 화살표로 끝나는 제목: "코스피 2%↑" → "코스피 2% 상승했습니다."
+  const arrow = t.match(/\s*([↑▲△⬆]|[↓▼▽⬇])\s*$/);
+  if (arrow) {
+    const rest = t.slice(0, arrow.index).replace(TRAILING_JUNK, "").trim();
+    if (rest) return `${rest} ${/[↑▲△⬆]/.test(arrow[1]) ? "상승했습니다" : "하락했습니다"}.`;
+  }
+
+  t = t.replace(TRAILING_JUNK, "").trim();
   if (!t) return text.trim();
   if (FINAL_ENDING.test(t)) return `${t}.`;
+
+  // 연결 어미로 끝나면 문장이 끊긴 것처럼 보이므로 서술어로 마무리한다.
+  // (광고·재고·신고처럼 '고'로 끝나는 명사는 제외)
+  if (/[가-힣]고$/.test(t) && !/(?:광고|재고|신고|공고|예고|사고|경고|통고|보고)$/.test(t)) {
+    return `${t} 있습니다.`;
+  }
+  if (/[가-힣](?:며|면서)$/.test(t)) return `${t.replace(/면서$/, "며")} 분석됐습니다.`;
+  if (/(?:지만|으나)$/.test(t) || (/[가-힣]나$/.test(t) && !/하나$/.test(t))) {
+    return `${t} 추이를 지켜볼 필요가 있습니다.`;
+  }
   if (/[은는]$/.test(t)) return `${t.slice(0, -1)}에 대한 소식입니다.`;
   if (/[을를]$/.test(t)) return `${t} 정리했습니다.`;
   if (/(?:의|와|과|에|에서|으로|도|만|까지|부터|보다)$/.test(t)) return `${t} 관련 소식입니다.`;
@@ -286,6 +308,7 @@ function toCard(a: Article, category: NewsCategory, index: number): NewsItem {
   // RSS 요약은 글자 수로 잘려 오는 경우가 있어, 마침표로 끝난 완결 문장만 쓴다.
   const sentences = splitSentences(body).filter(isCompleteSentence);
 
+  // 말머리·꼬리말 태그를 뗀 제목: 카드 제목과 fallback 요약에 함께 쓴다.
   const fallback = stripEditorMarks(a.title) || a.title;
   const summary =
     buildSummary(sentences) ?? toSummarySentence(pickFragment(body) ?? fallback);
@@ -316,7 +339,7 @@ function toCard(a: Article, category: NewsCategory, index: number): NewsItem {
   return {
     id: `rss-${index}`,
     category,
-    headline: a.title,
+    headline: fallback,
     summary,
     points,
     terms,
