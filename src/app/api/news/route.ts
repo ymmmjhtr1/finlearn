@@ -189,6 +189,30 @@ function splitSentences(text: string): string[] {
     .filter((s) => s.replace(/[^가-힣A-Za-z0-9]/g, "").length >= 8);
 }
 
+const TRAILING_ELLIPSIS = /\s*(?:\.{2,}|…)$/;
+
+/** 마침표/물음표/느낌표(뒤에 따옴표·괄호가 올 수 있음)로 끝나고 말줄임표로 끝나지 않으면 완결 문장 */
+function isCompleteSentence(s: string): boolean {
+  if (TRAILING_ELLIPSIS.test(s.replace(/["'”’)\]]+$/, ""))) return false;
+  return /[.!?]["'”’)\]]*$/.test(s);
+}
+
+const SUMMARY_MAX = 120;
+const SHORT_SENTENCE = 60;
+
+/**
+ * 첫 완결 문장을 요약으로 쓴다. 문장을 자르지 않으며, 첫 문장이 짧고
+ * 두 문장을 합쳐도 SUMMARY_MAX 이내일 때만 두 번째 문장을 이어 붙인다.
+ */
+function buildSummary(sentences: string[]): string | null {
+  const [first, second] = sentences;
+  if (!first) return null;
+  if (first.length < SHORT_SENTENCE && second && first.length + second.length + 1 <= SUMMARY_MAX) {
+    return `${first} ${second}`;
+  }
+  return first;
+}
+
 const normalize = (s: string) => s.replace(/[^가-힣A-Za-z0-9]/g, "");
 
 /** 이미 나온 문장과 사실상 같은 내용이면 true */
@@ -226,10 +250,10 @@ function toCard(a: Article, category: NewsCategory, index: number): NewsItem {
 
   // "(서울=연합뉴스) 홍길동 기자 = " 같은 기사 머리말 제거
   const body = a.description.replace(/^\([^)]*\)\s*[^=]{0,30}=\s*/, "");
-  const sentences = splitSentences(body);
+  // RSS 요약은 글자 수로 잘려 오는 경우가 있어, 마침표로 끝난 완결 문장만 쓴다.
+  const sentences = splitSentences(body).filter(isCompleteSentence);
 
-  // 원문이 이미 "..." 또는 "…"로 끝나는 경우에만 말줄임표를 "…"로 통일한다.
-  const summary = (sentences[0] ?? stripEditorMarks(a.title)).replace(/\s*(?:\.{3,}|…)$/, "…");
+  const summary = buildSummary(sentences) ?? stripEditorMarks(a.title).replace(TRAILING_ELLIPSIS, "");
   // 제목과 같은 내용의 포인트가 들어가지 않도록 제목도 사용된 문장으로 취급한다.
   const used = [summary, stripEditorMarks(a.title)];
   const points: string[] = [];
@@ -242,14 +266,8 @@ function toCard(a: Article, category: NewsCategory, index: number): NewsItem {
   // 포인트 1: 제목의 핵심 사실을 개조식으로 (요약이 곧 제목인 경우 중복이라 건너뜀)
   if (sentences.length > 0) add(titleToBullet(a.title));
 
-  // 포인트 2: RSS 요약의 나머지 핵심 문장. 한 문장뿐이면 쉼표 뒤 서술부를 따로 보여준다.
-  if (sentences.length > 1) {
-    sentences.slice(1, 3).forEach(add);
-  } else if (sentences.length === 1) {
-    const clauses = sentences[0].split(/,\s*/);
-    const tail = clauses.length > 1 ? clauses.slice(1).join(", ").trim() : "";
-    if (tail.replace(/[^가-힣A-Za-z0-9]/g, "").length >= 10) add(tail);
-  }
+  // 포인트 2: RSS 요약의 나머지 핵심 문장 (요약에 쓰인 문장은 중복 검사로 걸러진다)
+  sentences.slice(1, 4).forEach(add);
 
   // 포인트 3: 수치·기관·금융 용어 등 기사에 실제 언급된 지표
   add(extractFacts(fullText, summary));
