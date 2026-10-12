@@ -24,9 +24,12 @@ export interface TradeCost {
  */
 export function calcTradeCost(side: "buy" | "sell", amount: number, enabled = true): TradeCost {
   if (!enabled || amount <= 0) return { fee: 0, tax: 0 };
+  // 700,000 × 0.00015 = 104.99999999999999 처럼 부동소수점 오차로 1원이 빠지지 않도록
+  // 소수 6자리에서 반올림한 뒤 절사한다.
+  const floorWon = (v: number) => Math.floor(Math.round(v * 1e6) / 1e6);
   return {
-    fee: Math.floor(amount * BROKER_FEE_RATE),
-    tax: side === "sell" ? Math.floor(amount * SECURITIES_TAX_RATE) : 0,
+    fee: floorWon(amount * BROKER_FEE_RATE),
+    tax: side === "sell" ? floorWon(amount * SECURITIES_TAX_RATE) : 0,
   };
 }
 
