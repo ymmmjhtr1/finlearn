@@ -5,9 +5,30 @@ import {
 } from "@/lib/allocation-colors";
 import { INITIAL_CAPITAL } from "@/data/portfolio";
 import { stocks } from "@/data/stocks";
-import { calcTradeCost } from "@/lib/portfolio-storage";
 import type { SavedState, Side, Transaction } from "@/types/portfolio";
 import type { Holding, Stock } from "@/types/stock";
+
+/** 증권사 위탁수수료율 (매수·매도 공통) */
+export const BROKER_FEE_RATE = 0.00015;
+/** 증권거래세율 (매도 시에만 부과) */
+export const SECURITIES_TAX_RATE = 0.0018;
+
+export interface TradeCost {
+  fee: number;
+  tax: number;
+}
+
+/**
+ * 거래 금액에 대한 수수료/증권거래세를 계산한다. 원 미만은 절사한다.
+ * enabled가 false면 비용은 0이다.
+ */
+export function calcTradeCost(side: "buy" | "sell", amount: number, enabled = true): TradeCost {
+  if (!enabled || amount <= 0) return { fee: 0, tax: 0 };
+  return {
+    fee: Math.floor(amount * BROKER_FEE_RATE),
+    tax: side === "sell" ? Math.floor(amount * SECURITIES_TAX_RATE) : 0,
+  };
+}
 
 /** 거래 내역 보관 한도 (오래된 것부터 버린다) */
 export const HISTORY_LIMIT = 200;
