@@ -66,7 +66,8 @@ src/
 ## 로컬 실행 방법
 
 ### 사전 준비
-- Node.js 22 이상 (`yahoo-finance2` 요구 사항)
+- Node.js 22 (`yahoo-finance2` 요구 사항, `package.json`의 `engines`와 CI도 22 기준)
+  - Vercel 배포 시 **Project Settings → General → Node.js Version**도 `22.x`로 맞춰야 해요.
 - npm
 
 ### 실행
@@ -85,6 +86,7 @@ http://localhost:3000 에서 확인할 수 있습니다.
 ```bash
 npm run lint        # ESLint 검사
 npx tsc --noEmit    # 타입 검사
+npm test            # 단위 테스트 (Vitest)
 npm run build       # 프로덕션 빌드
 npm run start       # 빌드 결과 실행
 ```
