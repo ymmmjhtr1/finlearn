@@ -12,15 +12,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { LiveStock } from "@/lib/stock-types";
+import { won, pct, tone } from "@/lib/format";
+import type { LiveStock } from "@/types/stock";
 
 // 한국 증시 관례: 상승 빨강(rose-500), 하락 파랑(blue-500)
 const UP = "#f43f5e";
 const DOWN = "#3b82f6";
 
-const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
-const pct = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
-const tone = (n: number) => (n > 0 ? "text-rose-500" : n < 0 ? "text-blue-500" : "text-muted-foreground");
 
 const RANGES = [
   { days: 7, label: "7거래일" },

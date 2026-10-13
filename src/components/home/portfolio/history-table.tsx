@@ -5,7 +5,7 @@ import { isNum } from "@/lib/portfolio-storage";
 import { cn } from "@/lib/utils";
 import type { Transaction } from "@/types/portfolio";
 
-import { formatDate, won } from "./format";
+import { formatDate, won } from "@/lib/format";
 
 interface HistoryTableProps {
   history: Transaction[];

@@ -11,18 +11,8 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lightbulb, Pencil, Trash2 } from "lucide-react";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DeleteTermDialog, type PendingDelete } from "@/components/glossary/delete-term-dialog";
+import { TermDetailDialog } from "@/components/glossary/term-detail-dialog";
 import type { GlossaryTerm } from "@/types/glossary";
 import {
   TermEditorDialog,
@@ -30,6 +20,7 @@ import {
   type NewTermInput,
 } from "@/components/glossary/term-editor-dialog";
 import { buildTermPattern } from "@/lib/glossary-match";
+import { validateInput } from "@/lib/glossary-validate";
 import {
   buildTerms,
   emptyStore,
@@ -69,38 +60,6 @@ export function useTerms() {
   return ctx;
 }
 
-const TERM_MAX = 30;
-const DEFINITION_MAX = 500;
-const EXAMPLE_MAX = 300;
-
-/** 입력값 검증. 통과하면 정리된 값을, 실패하면 오류 문구를 돌려준다. ignoreKey는 편집 중인 자기 자신을 중복 검사에서 빼기 위한 값 */
-function validateInput(
-  input: NewTermInput,
-  terms: GlossaryTerm[],
-  ignoreKey?: string
-): { ok: true; name: string; definition: string; example: string } | { ok: false; error: string } {
-  const name = input.term.trim().replace(/\s+/g, " ");
-  const definition = input.definition.trim();
-  const example = (input.example ?? "").trim();
-
-  if (name.length < 2) return { ok: false, error: "용어명은 2글자 이상 입력해 주세요." };
-  if (name.length > TERM_MAX) return { ok: false, error: `용어명은 ${TERM_MAX}자 이하로 입력해 주세요.` };
-  if (!definition) return { ok: false, error: "쉬운 설명을 입력해 주세요." };
-  if (definition.length > DEFINITION_MAX)
-    return { ok: false, error: `설명은 ${DEFINITION_MAX}자 이하로 입력해 주세요.` };
-  if (example.length > EXAMPLE_MAX)
-    return { ok: false, error: `예시는 ${EXAMPLE_MAX}자 이하로 입력해 주세요.` };
-
-  const key = normalizeName(name);
-  const duplicate = terms.some(
-    (t) =>
-      normalizeName(t.term) !== ignoreKey &&
-      (normalizeName(t.term) === key || (t.english && normalizeName(t.english) === key))
-  );
-  if (duplicate) return { ok: false, error: `'${name}'은(는) 이미 용어사전에 있어요.` };
-  return { ok: true, name, definition, example };
-}
-
 export function TermProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   // 첫 렌더는 항상 기본 목록(서버와 동일). localStorage는 마운트 후에 합친다 → hydration 안전.
@@ -108,7 +67,7 @@ export function TermProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<GlossaryTerm | null>(null);
   // 삭제 확인 대기 중인 용어. back이 있으면 취소 시 그 화면(상세 모달/편집창)으로 돌아간다.
-  const [pendingDelete, setPendingDelete] = useState<{ term: GlossaryTerm; back: "detail" | "edit" | null } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   // 편집 중인 용어. fromDetail이면 저장/취소 후 상세 모달로 돌아간다.
   const [editing, setEditing] = useState<{ term: GlossaryTerm; fromDetail: boolean } | null>(null);
   const viewMoreRef = useRef<((term: string) => void) | null>(null);
@@ -251,7 +210,7 @@ export function TermProvider({ children }: { children: ReactNode }) {
     [terms, pattern, openTerm, addTerm, requestDelete, requestEdit, markSeen, setViewMoreHandler]
   );
 
-  function goBackFromDelete(p: { term: GlossaryTerm; back: "detail" | "edit" | null }) {
+  function goBackFromDelete(p: PendingDelete) {
     if (p.back === "detail") setSelected(p.term);
     if (p.back === "edit") setEditing({ term: p.term, fromDetail: false });
   }
@@ -267,81 +226,19 @@ export function TermProvider({ children }: { children: ReactNode }) {
   return (
     <TermContext.Provider value={value}>
       {children}
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent>
-          {selected && (
-            <>
-              <DialogHeader>
-                <div className="flex flex-wrap gap-1.5">
-                  {selected.custom ? (
-                    <Badge variant="secondary">내가 추가</Badge>
-                  ) : (
-                    <Badge variant={selected.level === "심화" ? "default" : "secondary"}>
-                      {selected.level}
-                    </Badge>
-                  )}
-                  <Badge variant="outline">{selected.category}</Badge>
-                  {selected.lastSeenDate && (
-                    <Badge variant="outline" className="border-primary/40 text-primary">
-                      뉴스 등장 {selected.lastSeenDate.slice(5).replace("-", "/")}
-                    </Badge>
-                  )}
-                </div>
-                <DialogTitle className="text-2xl">{selected.term}</DialogTitle>
-                {selected.english && <DialogDescription>{selected.english}</DialogDescription>}
-              </DialogHeader>
-              <div>
-                <h3 className="mb-1 text-xs font-semibold text-muted-foreground">쉬운 설명</h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed">{selected.definition}</p>
-              </div>
-              {selected.analogy && (
-                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-amber-950">
-                  <h3 className="mb-1 flex items-center gap-1.5 text-sm font-bold">
-                    <Lightbulb className="size-4" />
-                    일상 속 비유
-                  </h3>
-                  <p className="text-sm leading-relaxed">{selected.analogy}</p>
-                </div>
-              )}
-              {selected.example && (
-                <p className="whitespace-pre-line rounded-lg bg-accent p-3 text-sm text-accent-foreground">
-                  <span className="mr-1 font-semibold">{selected.custom ? "예시·팁" : "실제 예시"}</span>
-                  {selected.example}
-                </p>
-              )}
-              <Button variant="outline" onClick={viewMore}>
-                용어사전 탭에서 더 보기
-                <ArrowRight />
-              </Button>
-              {selected.custom && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setEditing({ term: selected, fromDetail: true });
-                    setSelected(null);
-                  }}
-                >
-                  <Pencil />
-                  편집
-                </Button>
-              )}
-              {selected.custom && (
-                <Button
-                  variant="ghost"
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => {
-                    setPendingDelete({ term: selected, back: "detail" });
-                    setSelected(null);
-                  }}
-                >
-                  <Trash2 />
-                  단어 삭제
-                </Button>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <TermDetailDialog
+        term={selected}
+        onClose={() => setSelected(null)}
+        onViewMore={viewMore}
+        onEdit={(term) => {
+          setEditing({ term, fromDetail: true });
+          setSelected(null);
+        }}
+        onDelete={(term) => {
+          setPendingDelete({ term, back: "detail" });
+          setSelected(null);
+        }}
+      />
       <TermEditorDialog
         open={editing !== null}
         onOpenChange={(open) => {
@@ -385,44 +282,18 @@ export function TermProvider({ children }: { children: ReactNode }) {
         }}
       />
 
-      <Dialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => {
-          if (open || !pendingDelete) return;
+      <DeleteTermDialog
+        pending={pendingDelete}
+        onCancel={(p) => {
           // 취소(ESC·바깥 클릭·취소 버튼): 상세 모달에서 왔다면 그 모달로 돌아간다.
-          goBackFromDelete(pendingDelete);
+          goBackFromDelete(p);
           setPendingDelete(null);
         }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>&lsquo;{pendingDelete?.term.term}&rsquo; 삭제</DialogTitle>
-            <DialogDescription>
-              직접 추가한 이 용어를 용어사전에서 삭제할까요? 삭제하면 되돌릴 수 없어요.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (pendingDelete) goBackFromDelete(pendingDelete);
-                setPendingDelete(null);
-              }}
-            >
-              취소
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (pendingDelete) removeTerm(pendingDelete.term);
-                setPendingDelete(null);
-              }}
-            >
-              삭제
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onConfirm={(p) => {
+          removeTerm(p.term);
+          setPendingDelete(null);
+        }}
+      />
     </TermContext.Provider>
   );
 }

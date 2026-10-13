@@ -3,9 +3,9 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { won } from "@/lib/format";
 import { CASH_COLOR, type AllocationSlice } from "@/lib/allocation-colors";
 
-const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 const percent = (value: number, total: number) =>
   total > 0 ? `${((value / total) * 100).toFixed(1)}%` : "0.0%";
 

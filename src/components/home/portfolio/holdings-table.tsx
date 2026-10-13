@@ -2,7 +2,7 @@ import type { EvaluatedHolding } from "@/lib/portfolio-calc";
 import { cn } from "@/lib/utils";
 import type { Side } from "@/types/portfolio";
 
-import { pct, tone, won } from "./format";
+import { pct, tone, won } from "@/lib/format";
 import { StockNameButton, TradeButtons } from "./trade-controls";
 
 interface HoldingsTableProps {

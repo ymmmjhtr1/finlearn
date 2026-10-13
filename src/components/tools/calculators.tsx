@@ -14,13 +14,12 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { calcAveraging, calcCompound, calcDeposit, type DepositKind, type TaxKind } from "@/lib/calculators";
+import { won, pct, tone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { NumberField, toNum } from "@/components/tools/number-field";
 
-const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
-const pct = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
 // 한국 증시 관례: 수익 빨강, 손실 파랑
-const tone = (n: number) => (n > 0 ? "text-rose-500" : n < 0 ? "text-blue-500" : "text-muted-foreground");
 
 function ResultRow({
   label,
@@ -62,25 +61,16 @@ export function CompoundCalculator() {
   const [rate, setRate] = useState("5");
   const [years, setYears] = useState("10");
 
-  const calc = useMemo(() => {
-    const p = toNum(principal);
-    const m = toNum(monthly);
-    const r = toNum(rate) / 100 / 12; // 월복리
-    const y = Math.floor(toNum(years));
-
-    let balance = p;
-    const rows = [{ year: 0, 원금: p, 수익: 0 }];
-    for (let month = 1; month <= y * 12; month++) {
-      balance = balance * (1 + r) + m; // 매월 이자가 붙고 월말에 적립
-      if (month % 12 === 0) {
-        const invested = p + m * month;
-        rows.push({ year: month / 12, 원금: invested, 수익: balance - invested });
-      }
-    }
-    const invested = p + m * y * 12;
-    const profit = balance - invested;
-    return { rows, final: balance, invested, profit, y };
-  }, [principal, monthly, rate, years]);
+  const calc = useMemo(
+    () =>
+      calcCompound({
+        principal: toNum(principal),
+        monthly: toNum(monthly),
+        ratePct: toNum(rate),
+        years: toNum(years),
+      }),
+    [principal, monthly, rate, years]
+  );
 
   const profitShare = calc.final > 0 ? (calc.profit / calc.final) * 100 : 0;
 
@@ -153,9 +143,6 @@ export function CompoundCalculator() {
 }
 
 /* ② 예·적금 세후 이자 계산기 */
-type DepositKind = "deposit" | "saving";
-type TaxKind = "general" | "free";
-
 export function DepositCalculator() {
   const [kind, setKind] = useState<DepositKind>("deposit");
   const [amount, setAmount] = useState("10000000");
@@ -163,19 +150,10 @@ export function DepositCalculator() {
   const [months, setMonths] = useState("12");
   const [tax, setTax] = useState<TaxKind>("general");
 
-  const calc = useMemo(() => {
-    const a = toNum(amount);
-    const r = toNum(rate) / 100;
-    const n = Math.floor(toNum(months));
-    // 단리: 예금은 목돈 × 금리 × 기간, 적금은 매월 납입분이 남은 개월 수만큼 이자를 받는다.
-    const principal = kind === "deposit" ? a : a * n;
-    const grossInterest =
-      kind === "deposit" ? (a * r * n) / 12 : (a * r * (n * (n + 1))) / 2 / 12;
-    const taxRate = tax === "general" ? 0.154 : 0;
-    const taxAmount = grossInterest * taxRate;
-    const netInterest = grossInterest - taxAmount;
-    return { principal, grossInterest, taxAmount, netInterest, maturity: principal + netInterest, n };
-  }, [kind, amount, rate, months, tax]);
+  const calc = useMemo(
+    () => calcDeposit({ kind, amount: toNum(amount), ratePct: toNum(rate), months: toNum(months), tax }),
+    [kind, amount, rate, months, tax]
+  );
 
   return (
     <CalcShell
@@ -246,20 +224,16 @@ export function AveragingCalculator() {
   const [addQty, setAddQty] = useState("50");
   const [addPrice, setAddPrice] = useState("60000");
 
-  const calc = useMemo(() => {
-    const q1 = toNum(qty);
-    const p1 = toNum(avg);
-    const q2 = toNum(addQty);
-    const p2 = toNum(addPrice);
-    const totalQty = q1 + q2;
-    const addCost = q2 * p2;
-    const totalCost = q1 * p1 + addCost;
-    const newAvg = totalQty > 0 ? totalCost / totalQty : 0;
-    const change = p1 > 0 ? ((newAvg - p1) / p1) * 100 : 0;
-    // 새 평단가에 도달하려면 현재 주가가 얼마나 올라야 하는지(추가 매수가 기준)
-    const breakEvenFromAdd = p2 > 0 ? ((newAvg - p2) / p2) * 100 : 0;
-    return { totalQty, addCost, totalCost, newAvg, change, breakEvenFromAdd, hasAdd: q2 > 0 && p2 > 0 };
-  }, [qty, avg, addQty, addPrice]);
+  const calc = useMemo(
+    () =>
+      calcAveraging({
+        qty: toNum(qty),
+        avgPrice: toNum(avg),
+        addQty: toNum(addQty),
+        addPrice: toNum(addPrice),
+      }),
+    [qty, avg, addQty, addPrice]
+  );
 
   return (
     <CalcShell

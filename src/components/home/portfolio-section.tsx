@@ -3,9 +3,9 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { StockChartDialog } from "@/components/home/stock-chart-dialog";
+import { StockChartDialog } from "@/components/home/portfolio/stock-chart-dialog";
 import { FeeSwitch } from "@/components/home/portfolio/fee-switch";
-import { won } from "@/components/home/portfolio/format";
+import { won } from "@/lib/format";
 import { HistoryTable } from "@/components/home/portfolio/history-table";
 import { HoldingsTable } from "@/components/home/portfolio/holdings-table";
 import { MarketTable } from "@/components/home/portfolio/market-table";

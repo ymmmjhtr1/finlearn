@@ -13,11 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { quoteTrade, type TradeQuote } from "@/lib/portfolio-calc";
-import type { LiveStock } from "@/lib/stock-types";
+import type { LiveStock } from "@/types/stock";
 import { cn } from "@/lib/utils";
 import type { Side } from "@/types/portfolio";
 
-import { won } from "./format";
+import { won } from "@/lib/format";
 
 export interface TradeTarget {
   code: string;

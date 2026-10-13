@@ -6,11 +6,11 @@ import { RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { INITIAL_CAPITAL } from "@/data/portfolio";
 import { stocks } from "@/data/stocks";
-import type { LiveStock } from "@/lib/stock-types";
+import type { LiveStock } from "@/types/stock";
 import { cn } from "@/lib/utils";
 import type { Side } from "@/types/portfolio";
 
-import { formatDate, pct, tone, won } from "./format";
+import { formatDate, pct, tone, won } from "@/lib/format";
 import { StockNameButton, TradeButtons } from "./trade-controls";
 
 const sectors = Array.from(new Set(stocks.map((s) => s.sector)));

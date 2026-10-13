@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { INITIAL_CASH } from "@/data/portfolio";
 
-import { won } from "./format";
+import { won } from "@/lib/format";
 
 interface ResetDialogProps {
   open: boolean;

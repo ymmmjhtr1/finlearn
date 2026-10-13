@@ -1,10 +1,10 @@
-import { AllocationChart } from "@/components/home/allocation-chart";
+import { AllocationChart } from "./allocation-chart";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { AllocationSlice } from "@/lib/allocation-colors";
 import type { PortfolioSummary } from "@/lib/portfolio-calc";
 import { cn } from "@/lib/utils";
 
-import { pct, tone, toneBg, won } from "./format";
+import { pct, tone, toneBg, won } from "@/lib/format";
 
 interface SummaryCardsProps {
   summary: PortfolioSummary;

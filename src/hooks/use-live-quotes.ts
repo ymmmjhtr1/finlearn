@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { stocks } from "@/data/stocks";
-import type { LiveStock, Quote, StocksResponse } from "@/lib/stock-types";
+import type { LiveStock, Quote, StocksResponse } from "@/types/stock";
 
 /** /api/stocks 시세를 마운트 시 조회하고, 수동 새로고침을 제공한다. */
 export function useLiveQuotes() {
